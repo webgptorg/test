@@ -263,8 +263,8 @@ console.log(greet('World'));
     };
   });
 
-  window.onerror = function (msg, _src, line, col, err) {
-    _post({ type: 'error', error: (err ? err.message : msg) + ' (line ' + line + ':' + col + ')' });
+  window.onerror = function (msg, _src, _line, _col, err) {
+    _post({ type: 'error', error: err ? err.message : msg });
   };
 
   var t0 = performance.now();

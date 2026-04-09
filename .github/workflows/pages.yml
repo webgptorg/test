@@ -36,8 +36,8 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # Publish the whole repository root (index.html lives here)
-          path: '.'
+          # Publish only the docs/ directory (keeps .github/ and other files private)
+          path: './docs'
 
       - name: Deploy to GitHub Pages
         id: deployment
