@@ -186,42 +186,53 @@ console.log(greet('World'));
       </div>
     </main>
 
+    <!--
+      Sandboxed iframe used as an isolated execution environment.
+      sandbox="allow-scripts" permits JS execution but blocks navigation,
+      popups, form submission, and same-origin access to the parent page.
+    -->
+    <iframe id="sandbox" sandbox="allow-scripts" style="display:none" title="Code execution sandbox"></iframe>
+
     <script>
-      // ── Console capture ────────────────────────────────────────────────────
       const output = document.getElementById('output');
       const status = document.getElementById('status');
 
-      function appendOutput(type, args) {
+      // ── Output helpers ─────────────────────────────────────────────────────
+      function appendOutput(type, text) {
         const line = document.createElement('div');
         line.className = type;
-        line.textContent = args.map(a => {
-          if (typeof a === 'object') {
-            try { return JSON.stringify(a, null, 2); } catch { return String(a); }
-          }
-          return String(a);
-        }).join(' ');
+        line.textContent = text;
         output.appendChild(line);
         output.scrollTop = output.scrollHeight;
       }
 
-      const _console = {
-        log:   console.log.bind(console),
-        info:  console.info.bind(console),
-        warn:  console.warn.bind(console),
-        error: console.error.bind(console),
-      };
+      function serialize(value) {
+        if (typeof value === 'object' && value !== null) {
+          try { return JSON.stringify(value, null, 2); } catch { return String(value); }
+        }
+        return String(value);
+      }
 
-      ['log', 'info', 'warn', 'error'].forEach(level => {
-        console[level] = (...args) => {
-          _console[level](...args);
-          appendOutput(level, args);
-        };
+      // ── Receive messages from the sandboxed iframe ─────────────────────────
+      window.addEventListener('message', ({ data, source }) => {
+        const sandbox = document.getElementById('sandbox');
+        // Only accept messages from our own sandbox iframe
+        if (!sandbox || source !== sandbox.contentWindow) return;
+
+        const { type, args, result, error, duration } = data;
+
+        if (type === 'console') {
+          appendOutput(args.level, args.values.map(serialize).join(' '));
+        } else if (type === 'result') {
+          if (result !== undefined) {
+            appendOutput('result', '→ ' + serialize(result));
+          }
+          status.textContent = `Done in ${duration} ms`;
+        } else if (type === 'error') {
+          appendOutput('error', '❌ ' + error);
+          status.textContent = 'Error';
+        }
       });
-
-      window.onerror = (msg, _src, line, col, err) => {
-        appendOutput('error', [`❌ ${err ? err.message : msg} (line ${line}:${col})`]);
-        status.textContent = 'Error';
-      };
 
       // ── Runner ─────────────────────────────────────────────────────────────
       function runCode() {
@@ -230,27 +241,57 @@ console.log(greet('World'));
 
         clearOutput();
         status.textContent = 'Running…';
-        const t0 = performance.now();
 
-        try {
-          // Use indirect eval so code runs in global scope
-          const result = (0, eval)(code); // eslint-disable-line no-eval
-          if (result !== undefined) {
-            const line = document.createElement('div');
-            line.className = 'result';
-            line.textContent = '→ ' + (
-              typeof result === 'object'
-                ? JSON.stringify(result, null, 2)
-                : String(result)
-            );
-            output.appendChild(line);
+        // Build a self-contained HTML document that:
+        //   1. Overrides console.* to post messages to the parent
+        //   2. Runs the user code and posts the return value / errors back
+        const sandboxDoc = `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body><script>
+(function () {
+  var _post = function (obj) { parent.postMessage(obj, '*'); };
+
+  ['log','info','warn','error'].forEach(function (level) {
+    console[level] = function () {
+      _post({ type: 'console', args: {
+        level: level,
+        values: Array.prototype.slice.call(arguments).map(function (a) {
+          if (typeof a === 'object' && a !== null) {
+            try { return JSON.parse(JSON.stringify(a)); } catch (e) { return String(a); }
           }
-          const ms = (performance.now() - t0).toFixed(1);
-          status.textContent = `Done in ${ms} ms`;
-        } catch (err) {
-          appendOutput('error', [`❌ ${err.message}`]);
-          status.textContent = 'Error';
-        }
+          return a;
+        })
+      }});
+    };
+  });
+
+  window.onerror = function (msg, _src, line, col, err) {
+    _post({ type: 'error', error: (err ? err.message : msg) + ' (line ' + line + ':' + col + ')' });
+  };
+
+  var t0 = performance.now();
+  try {
+    var result = (function () { ${code.replace(/<\/script>/gi, '<\\/script>')} })();
+    _post({ type: 'result', result: (function (r) {
+      if (typeof r === 'object' && r !== null) {
+        try { return JSON.parse(JSON.stringify(r)); } catch (e) { return String(r); }
+      }
+      return r;
+    })(result), duration: (performance.now() - t0).toFixed(1) });
+  } catch (err) {
+    _post({ type: 'error', error: err.message });
+  }
+})();
+<\/script></body></html>`;
+
+        // Replace the iframe to get a clean global scope each run
+        const old = document.getElementById('sandbox');
+        const frame = document.createElement('iframe');
+        frame.id = 'sandbox';
+        frame.sandbox = 'allow-scripts';
+        frame.style.display = 'none';
+        frame.title = 'Code execution sandbox';
+        old.replaceWith(frame);
+
+        frame.srcdoc = sandboxDoc;
       }
 
       function clearOutput() {
