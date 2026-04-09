@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WebGPT – Playground</title>
+    <style>
+      *, *::before, *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family: system-ui, -apple-system, sans-serif;
+        background: #0f1117;
+        color: #e2e8f0;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+
+      header {
+        background: #1a1d27;
+        border-bottom: 1px solid #2d3148;
+        padding: 1rem 2rem;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+      }
+
+      header h1 {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: #a78bfa;
+      }
+
+      header span {
+        font-size: 0.8rem;
+        background: #2d3148;
+        color: #a78bfa;
+        padding: 0.2rem 0.6rem;
+        border-radius: 9999px;
+      }
+
+      main {
+        flex: 1;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        grid-template-rows: auto 1fr;
+        gap: 0;
+        height: calc(100vh - 57px);
+      }
+
+      .panel {
+        display: flex;
+        flex-direction: column;
+        border-right: 1px solid #2d3148;
+      }
+
+      .panel:last-child {
+        border-right: none;
+      }
+
+      .panel-header {
+        background: #1a1d27;
+        border-bottom: 1px solid #2d3148;
+        padding: 0.6rem 1rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #94a3b8;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .panel-body {
+        flex: 1;
+        overflow: auto;
+      }
+
+      textarea {
+        width: 100%;
+        height: 100%;
+        background: #0f1117;
+        color: #e2e8f0;
+        border: none;
+        outline: none;
+        resize: none;
+        padding: 1rem;
+        font-family: 'Fira Code', 'Cascadia Code', monospace;
+        font-size: 0.9rem;
+        line-height: 1.6;
+        tab-size: 2;
+      }
+
+      #output {
+        padding: 1rem;
+        font-family: 'Fira Code', 'Cascadia Code', monospace;
+        font-size: 0.9rem;
+        line-height: 1.6;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      #output .log   { color: #e2e8f0; }
+      #output .info  { color: #60a5fa; }
+      #output .warn  { color: #fbbf24; }
+      #output .error { color: #f87171; }
+      #output .result { color: #34d399; margin-bottom: 0.5rem; }
+
+      .toolbar {
+        display: flex;
+        gap: 0.5rem;
+      }
+
+      button {
+        background: #7c3aed;
+        color: #fff;
+        border: none;
+        border-radius: 6px;
+        padding: 0.35rem 0.9rem;
+        font-size: 0.8rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.15s;
+      }
+
+      button:hover { background: #6d28d9; }
+
+      button.secondary {
+        background: #2d3148;
+        color: #94a3b8;
+      }
+
+      button.secondary:hover { background: #374151; }
+
+      .status {
+        font-size: 0.75rem;
+        color: #64748b;
+        margin-left: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>WebGPT Playground</h1>
+      <span>Testing</span>
+    </header>
+
+    <main>
+      <!-- Code editor panel -->
+      <div class="panel">
+        <div class="panel-header">
+          JavaScript
+          <div class="toolbar">
+            <button id="runBtn" onclick="runCode()">▶ Run</button>
+            <button class="secondary" onclick="clearEditor()">Clear</button>
+          </div>
+        </div>
+        <div class="panel-body">
+          <textarea id="editor" spellcheck="false" placeholder="// Write JavaScript here and press Run (or Ctrl+Enter)
+console.log('Hello from WebGPT Playground! 🚀');
+
+// Try fetching data, testing functions, etc.
+const greet = name => `Hello, ${name}!`;
+console.log(greet('World'));
+"></textarea>
+        </div>
+      </div>
+
+      <!-- Output panel -->
+      <div class="panel">
+        <div class="panel-header">
+          Output
+          <div class="toolbar">
+            <button class="secondary" onclick="clearOutput()">Clear</button>
+            <span class="status" id="status"></span>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div id="output"></div>
+        </div>
+      </div>
+    </main>
+
+    <script>
+      // ── Console capture ────────────────────────────────────────────────────
+      const output = document.getElementById('output');
+      const status = document.getElementById('status');
+
+      function appendOutput(type, args) {
+        const line = document.createElement('div');
+        line.className = type;
+        line.textContent = args.map(a => {
+          if (typeof a === 'object') {
+            try { return JSON.stringify(a, null, 2); } catch { return String(a); }
+          }
+          return String(a);
+        }).join(' ');
+        output.appendChild(line);
+        output.scrollTop = output.scrollHeight;
+      }
+
+      const _console = {
+        log:   console.log.bind(console),
+        info:  console.info.bind(console),
+        warn:  console.warn.bind(console),
+        error: console.error.bind(console),
+      };
+
+      ['log', 'info', 'warn', 'error'].forEach(level => {
+        console[level] = (...args) => {
+          _console[level](...args);
+          appendOutput(level, args);
+        };
+      });
+
+      window.onerror = (msg, _src, line, col, err) => {
+        appendOutput('error', [`❌ ${err ? err.message : msg} (line ${line}:${col})`]);
+        status.textContent = 'Error';
+      };
+
+      // ── Runner ─────────────────────────────────────────────────────────────
+      function runCode() {
+        const code = document.getElementById('editor').value;
+        if (!code.trim()) return;
+
+        clearOutput();
+        status.textContent = 'Running…';
+        const t0 = performance.now();
+
+        try {
+          // Use indirect eval so code runs in global scope
+          const result = (0, eval)(code); // eslint-disable-line no-eval
+          if (result !== undefined) {
+            const line = document.createElement('div');
+            line.className = 'result';
+            line.textContent = '→ ' + (
+              typeof result === 'object'
+                ? JSON.stringify(result, null, 2)
+                : String(result)
+            );
+            output.appendChild(line);
+          }
+          const ms = (performance.now() - t0).toFixed(1);
+          status.textContent = `Done in ${ms} ms`;
+        } catch (err) {
+          appendOutput('error', [`❌ ${err.message}`]);
+          status.textContent = 'Error';
+        }
+      }
+
+      function clearOutput() {
+        output.innerHTML = '';
+        status.textContent = '';
+      }
+
+      function clearEditor() {
+        document.getElementById('editor').value = '';
+        document.getElementById('editor').focus();
+      }
+
+      // Ctrl/Cmd + Enter to run
+      document.getElementById('editor').addEventListener('keydown', e => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+          e.preventDefault();
+          runCode();
+        }
+      });
+    </script>
+  </body>
+</html>
